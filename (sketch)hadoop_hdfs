@@ -1,0 +1,19 @@
+# Join
+Join Datebase in Date '2018_10_13'
+数据存储使用HDFS系统（ip:50070），在hdfs-sit.xml中配置
+对于HDFS分布式集群的配置，主要结构为namenode+dataname
+namenode作为主节点，其工作为存储元数据，并及时更新元数据，
+当用户client向服务器提交任务时，首当其冲的是namenode接收到请求信号，
+然后namenode再根据自身存储的元数据进行datanode查询。
+datanode的任务就是用来存储文件实体，当用户发出提交存储文件的信号时，namenode根据文件的大小将文件分割成块，然后在随机分发给某个datanode节点，并记录下该节点的id与该节点上存储位置的id。
+namenode存储的元数据需要定时的进行更新，才能保证每次的操作有效，所有就需要一个独立的任务来进行该项操作。为了减轻主节点的压力，我们会选择其他的某个节点进行构建，该节点就称为secondarynamenode(次要的主节点),这个节点的作用就是来进行主节点元数据更新的。
+元数据更新的原理:
+在namenode中存在这edits与fsimage两个任务，他们分别保存元数据‘修改新’与元数据镜像。
+即：【元数据container】=元数据+edits+fsimage;
+我们可以在hadoop中的core-site.xml进行配置'检查站'(checkpoint),或者直接使用默认的配置(每‘3600s’或'edits>=64M').
+当达到检查站的某项要求时，元数据container便会被传入secondarynamenode，使edits与faimage融合，然后覆盖元数据，完成更新并传回namenode。
+需要注意的时，secondarynamenode会自动保存上次合并的faimage信息，它的结构与namenode相同。当namenode发生故障时，可以直接将faimage拷贝至namenode进行恢复。
+datanode作为最基本的存储单元，它会周期性的将本节点的元数据信息传递给namenode,当namenode在一段时间的间隔之后发现无法接收到某个datanode时，主节点就会认为该节点死亡，并向用户发出警报。
+判定节点死亡的时间默认为十分钟三十秒。
+这个时间可以在hdfs-site.xml中配置。
+HDFS为了确保本身的数据安全性，每次上传文件都会根据配置将其分割为多块，然后分节点存储，这使得他的存储处理变得很复杂与艰难，但是此举在保证文件的安全性的同时，HDFS也提出了移动数据不如移动计算，使用主节点将计算的规则提供给datanode，然后datanode计算完成后将计算结果再返还给主节点，主节点只需要将结果展示给用户即可，所以HDFS的计算并没有想象的那么困难，当然如此操作是无法完成即时性的计算的。
